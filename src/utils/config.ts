@@ -1,4 +1,4 @@
-import { Token } from '@uniswap/sdk-core'
+import { Token} from '@uniswap/sdk-core'
 import { FeeAmount } from '@uniswap/v3-sdk'
 import { ETH_token, USDC_TOKEN } from './constants'
 
@@ -15,9 +15,7 @@ export interface ExampleConfig {
 
     tokens: {
         token0: Token
-        token0Amount: number
         token1: Token
-        token1Amount: number
         poolFee: FeeAmount
     }
 }
@@ -28,10 +26,8 @@ export const CurrentConfig: ExampleConfig = {
     env: Environment.WALLET_EXTENSION,
 
     tokens: {
-        token0: ETH_token,
-        token0Amount: 1000,
-        token1: USDC_TOKEN,
-        token1Amount: 100000,
+        token0: USDC_TOKEN,
+        token1: ETH_token,
         poolFee: FeeAmount.LOWEST,
     },
 }

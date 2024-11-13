@@ -10,7 +10,7 @@ export async function getCurrencyBalance(
     currency: Currency
 ): Promise<string> {
     // Handle ETH directly
-    console.log('currency::',currency)
+    console.log('currency::',currency,address)
     if (currency.isNative) {
         return ethers.formatEther(await provider.getBalance(address))
     }

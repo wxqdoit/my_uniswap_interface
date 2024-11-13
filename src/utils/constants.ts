@@ -1,7 +1,7 @@
 // This file stores web3 related constants such as addresses, token definitions, ETH currency references and ABI's
 import { sepolia } from 'viem/chains';
 
-import { Token } from '@uniswap/sdk-core'
+import { Token} from '@uniswap/sdk-core'
 
 // Addresses
 
@@ -13,7 +13,6 @@ export const NONFUNGIBLE_POSITION_MANAGER_CONTRACT_ADDRESS =
 // Currencies and Tokens
 export const ETH_token = new Token(sepolia.id, '0xfff9976782d46cc05630d1f6ebab18b2324d6b14', 18, 'WETH', 'Wrapped Ether');
 export const USDC_TOKEN = new Token(sepolia.id, '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238', 6, 'USDC', 'USD Coin');
-
 // Transactions
 
 export const MAX_FEE_PER_GAS = '100000000000'

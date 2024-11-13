@@ -1,6 +1,6 @@
 import { ethers } from 'ethers'
 import { CurrentConfig } from './config'
-import PoolABI from './PoolABI.json'
+import PoolABI from '../abi/PoolABI.json'
 import { POOL_FACTORY_CONTRACT_ADDRESS } from './constants'
 import { computePoolAddress } from '@uniswap/v3-sdk'
 export const provider = new ethers.BrowserProvider(window.ethereum);
@@ -19,8 +19,8 @@ interface PoolInfo {
 export function getPoolAddress():string{
     return computePoolAddress({
         factoryAddress: POOL_FACTORY_CONTRACT_ADDRESS,
-        tokenB: CurrentConfig.tokens.token0,
-        tokenA: CurrentConfig.tokens.token1,
+        tokenA: CurrentConfig.tokens.token0,
+        tokenB: CurrentConfig.tokens.token1,
         fee: CurrentConfig.tokens.poolFee,
     })
 }
@@ -45,7 +45,8 @@ export async function getPoolInfo(currentPoolAddress:string): Promise<PoolInfo> 
             poolContract.liquidity(),
             poolContract.slot0(),
         ])
-    console.log('liquidity',liquidity)
+    console.log('slot0====',slot0)
+
     return {
         token0,
         token1,

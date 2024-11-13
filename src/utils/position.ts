@@ -1,12 +1,11 @@
-import {CurrencyAmount, Percent, Token,} from '@uniswap/sdk-core'
-import ERC20ABI from './ERC20ABI.json'
-import {FeeAmount, MintOptions, nearestUsableTick, NonfungiblePositionManager, Pool, Position,TickMath,maxLiquidityForAmounts} from '@uniswap/v3-sdk'
+import {  Percent, Token,NONFUNGIBLE_POSITION_MANAGER_ADDRESSES} from '@uniswap/sdk-core'
+import ERC20ABI from '../abi/ERC20ABI.json'
+import {FeeAmount, MintOptions, NonfungiblePositionManager, Pool, Position} from '@uniswap/v3-sdk'
 import {ethers} from 'ethers'
 
 import {CurrentConfig} from './config'
 import {
-    MAX_FEE_PER_GAS,
-    MAX_PRIORITY_FEE_PER_GAS,
+
     NONFUNGIBLE_POSITION_MANAGER_ABI,
     NONFUNGIBLE_POSITION_MANAGER_CONTRACT_ADDRESS,
     TOKEN_AMOUNT_TO_APPROVE_FOR_TRANSFER,
@@ -14,7 +13,12 @@ import {
 import {getPoolAddress, getPoolInfo} from './pool.ts'
 import {getProvider, sendTransaction, TransactionState,} from './providers'
 import JSBI from "jsbi";
-import {fromReadableAmount} from "./conversion.ts";
+import {tryParseTick} from "./utils.ts";
+import tryParseCurrencyAmount from "./tryParseCurrencyAmount.ts";
+import {NativeToken} from "../tokens/NativeToken.ts";
+import {TOKENS} from "../constants/tokens.ts";
+import {CHAINS} from "../constants/chains.ts";
+
 
 export interface PositionInfo {
     tickLower: number
@@ -36,48 +40,37 @@ export async function mintPosition(address: string): Promise<TransactionState> {
         return TransactionState.Failed
     }
 
-
-    // 1. 授权代币A和代币B给POSITION_MANAGER_CONTRACT
+    // // 1. 授权代币A和代币B给POSITION_MANAGER_CONTRACT
     // const tokenInApproval = await getTokenTransferApproval(address,
     //     CurrentConfig.tokens.token0
     // )
     // const tokenOutApproval = await getTokenTransferApproval(address,
     //     CurrentConfig.tokens.token1
     // )
-    //
-    // // Fail if transfer approvals do not go through
-    // if (tokenInApproval !== TransactionState.Sent || tokenOutApproval !== TransactionState.Sent) {
-    //     return TransactionState.Failed
-    // }
+
 
     // 2. 创建一个等待mint的Position
     //      2.1 使用辅助函数计算pool的地址
     //      2.2 使用pool地址通过合约查询pool的信息
     //      2.3 使用pool信息构建一个Pool
     //      2.4 使用实例化的Pool创建一个Position
-
-    const position = await constructPosition(
-        CurrencyAmount.fromRawAmount(
-            CurrentConfig.tokens.token0,
-            10000
-        ),
-        CurrencyAmount.fromRawAmount(
-            CurrentConfig.tokens.token1,
-            10000000000000
-        )
-    )
+    const position = await constructPosition()
 
 
-    // 3. mint配置，MintOptions用于创建新头寸的类型
+
+    const eth = new NativeToken(TOKENS[CHAINS.SEPOLIA].WRAPPED_NATIVE,'ETH','Ether')
+    // 3. mint config, MintOptions for creating new position
+    // if token is native,useNative is required
     const mintOptions: MintOptions = {
         recipient: address,
-        deadline: Math.floor(Date.now() / 1000) + 60 * 20,
+        useNative:eth ,
+        deadline: Math.floor(Date.now() / 1000) + 60 * 10,
         slippageTolerance: new Percent(50, 10_000),
     }
 
-    console.log('mintOptions===',mintOptions)
-    console.log('positionToMint===',position.liquidity)
-    // 4. 获取calldata，构建交易，以便mint position使用
+    console.log('mintOptions===',mintOptions,NONFUNGIBLE_POSITION_MANAGER_ADDRESSES)
+    console.log('position===',position)
+    // 4. build calldata，构建交易，以便mint position使用
     const {calldata, value} = NonfungiblePositionManager.addCallParameters(
         position,
         mintOptions
@@ -87,14 +80,10 @@ export async function mintPosition(address: string): Promise<TransactionState> {
         to: NONFUNGIBLE_POSITION_MANAGER_CONTRACT_ADDRESS,
         value: value,
         from: address,
-        maxFeePerGas: MAX_FEE_PER_GAS,
-        maxPriorityFeePerGas: MAX_PRIORITY_FEE_PER_GAS,
     }
 
     // 5.发送交易，创建自己的仓位
     return sendTransaction(transaction)
-
-
 
     // const positionManager = new ethers.Contract(POOL_FACTORY_CONTRACT_ADDRESS, PoolABI, provider);
     // const poolAddress = await positionManager.getPool(CurrentConfig.tokens.token0.address, CurrentConfig.tokens.token1.address, poolFee);
@@ -102,10 +91,7 @@ export async function mintPosition(address: string): Promise<TransactionState> {
 
 }
 
-export async function constructPosition(
-    token0Amount: CurrencyAmount<Token>,
-    token1Amount: CurrencyAmount<Token>
-): Promise<Position> {
+export async function constructPosition(): Promise<Position> {
 
     // get pool address
     const pa = getPoolAddress()
@@ -116,53 +102,70 @@ export async function constructPosition(
     // construct pool instance
 
     const configuredPool = new Pool(
-        token0Amount.currency,
-        token1Amount.currency,
-        FeeAmount.LOWEST,
+        CurrentConfig.tokens.token0,
+        CurrentConfig.tokens.token1,
+        poolInfo.fee,
         poolInfo.sqrtPriceX96.toString(),
         poolInfo.liquidity.toString(),
-        poolInfo.tick
+        poolInfo.tick,
     )
-    // 将 sqrtPriceX96 转换为可读价格
-    const currentPrice = (BigInt(poolInfo.sqrtPriceX96) ** BigInt(2)) / BigInt(2 ** 192);
+
+    // 计算可读价格
+    const price =  (BigInt(poolInfo.sqrtPriceX96.toString()) ** BigInt(2)) / BigInt(2 ** 192);
+
+    // 调整价格以考虑代币精度 1 token1 值多少 token0
+    const adjustedPrice = ethers.formatUnits(price.toString(),CurrentConfig.tokens.token1.decimals-CurrentConfig.tokens.token0.decimals)
+
+    console.log('adjustedPrice',adjustedPrice)
+
+    // 设置流动性范围
+    const priceLower = Number(adjustedPrice) * 0.9989; // 设定下限为当前价格的 99.89%
+    const priceUpper = Number(adjustedPrice) * 1.001; // 设定上限为当前价格的 100.1%
+    console.log('price====' ,priceLower,priceUpper )
+
+    const tickLower = tryParseTick(CurrentConfig.tokens.token0, CurrentConfig.tokens.token1, FeeAmount.LOWEST, priceLower.toString())
+    const tickUpper = tryParseTick(CurrentConfig.tokens.token0, CurrentConfig.tokens.token1, FeeAmount.LOWEST, priceUpper.toString())
+
+    console.log('pool price====' ,poolInfo.sqrtPriceX96,Number(adjustedPrice) )
+    console.log('configuredPool===',configuredPool)
+    console.log('tickLower====' ,tickLower )
+    console.log('tickUpper====' ,tickUpper )
 
 
-
-    console.log('pool price====' ,poolInfo.sqrtPriceX96,Number(currentPrice) )
-
-
-    const tickLower = nearestUsableTick(poolInfo.tick, poolInfo.tickSpacing) - poolInfo.tickSpacing * 2
-    const tickUpper = nearestUsableTick(poolInfo.tick, poolInfo.tickSpacing) + poolInfo.tickSpacing * 2
+    // const sqrtRatioAX96 = TickMath.getSqrtRatioAtTick(tickLower)
+    // const sqrtRatioBX96 = TickMath.getSqrtRatioAtTick(tickUpper)
+    //
+    // console.log('sqrtRatioAX96',sqrtRatioAX96,sqrtRatioBX96)
 
 
-    const sqrtRatioAX96 = TickMath.getSqrtRatioAtTick(tickLower)
-    const sqrtRatioBX96 = TickMath.getSqrtRatioAtTick(tickUpper)
+    const independentAmount = tryParseCurrencyAmount('1', CurrentConfig.tokens.token0);
 
-    console.log('====')
-    console.log('configuredPool',configuredPool)
-    console.log('====')
+    const calculateDependentAmount  = ():string=>{
+        const position: Position | undefined = Position.fromAmount0({
+                pool: configuredPool,
+                tickLower,
+                tickUpper,
+                amount0: independentAmount.quotient,
+                useFullPrecision:true
+            })
+        const dependentTokenAmount = position.amount1
+        return  ethers.formatUnits(JSBI.toNumber(dependentTokenAmount.quotient))
+    }
+    const dependentAmount = tryParseCurrencyAmount(calculateDependentAmount(), CurrentConfig.tokens.token1);
 
-    const data = maxLiquidityForAmounts( configuredPool.sqrtRatioX96,sqrtRatioAX96,sqrtRatioBX96,token0Amount.quotient,token1Amount.quotient,true)
-
-    console.log('maxLiquidityForAmounts data====',data)
-
+    console.log('independentAmount===',independentAmount.quotient)
+    console.log('dependentAmount===',dependentAmount.quotient)
 
     return Position.fromAmounts({
         pool: configuredPool,
         tickLower,
         tickUpper,
-        amount0: token0Amount.quotient,
-        amount1: token1Amount.quotient,
+        amount0: independentAmount.quotient,
+        amount1: dependentAmount.quotient,
         useFullPrecision: true,
     })
 }
-export function invariant(condition:boolean, message:string) {
-    console.log(condition)
-    if (condition) {
-        return;
-    }
-    throw new Error(message);
-}
+
 export async function getPositionIds(address:string): Promise<number[]> {
     const provider = getProvider()
     if (!provider || !address) {

@@ -31,6 +31,13 @@ export function tryParsePrice<T extends Currency>(baseToken?: T, quoteToken?: T,
   )
 }
 
+/**
+ *
+ * @param baseToken such usdc
+ * @param quoteToken such eth
+ * @param feeAmount
+ * @param value
+ */
 export function tryParseTick(
   baseToken?: Token,
   quoteToken?: Token,
